@@ -10,15 +10,19 @@ make_ini:
     helper function for building tank config
 
 """
+from __future__ import unicode_literals
 
 import yaml
 import json
 import urllib2
 import logging
 import re
+import os
+import io
+import zipfile
+
 
 class APIError(RuntimeError):
-
     """
     Raised when tank replies with error code and valid json
     """
@@ -30,7 +34,6 @@ class APIError(RuntimeError):
 
 
 class RetryLater(APIError):
-
     """
     Raised when error code is 503
     """
@@ -38,7 +41,6 @@ class RetryLater(APIError):
 
 
 class NothingDone(APIError):
-
     """
     Raised when no action was performed by yandex-tank-api server
     """
@@ -46,17 +48,16 @@ class NothingDone(APIError):
 
 
 class Client(object):
-
     """
     Session-independent methods
     """
 
     def __init__(self, tank, api_port=8888):
         self._tank = tank
-        if re.match('.*?\:\d+',tank):
-            self.url_base = 'http://'+tank
-	else:
-	    self.url_base = 'http://%s:%s' % (tank, api_port)
+        if re.match('.*?\:\d+', tank):
+            self.url_base = 'http://' + tank
+        else:
+            self.url_base = 'http://%s:%s' % (tank, api_port)
         self.log = logging.getLogger("Tank " + tank)
 
     @property
@@ -86,11 +87,12 @@ class Client(object):
         artifact_file = open(local_filename, 'w')
         artifact_file.write(contents)
 
-    def _get_str(self, url, post_contents=None):
-        """Returns /GET or /POST response as string"""
+    def _get_str(self, url, post_contents=None, headers=None):
         try:
             full_url = self.url_base + url
-            response = urllib2.urlopen(full_url, post_contents)
+            request = urllib2.Request(full_url, post_contents, headers)
+
+            response = urllib2.urlopen(request)
         except urllib2.HTTPError as ex:
             if ex.code != 503:
                 self.log.error("API request %s returned %s", url, ex.code)
@@ -109,9 +111,9 @@ class Client(object):
                 "API returned code %s, content length>1KB", http_code)
         return (http_code, str_response)
 
-    def _get_json(self, url, post_contents=None):
+    def _get_json(self, url, post_contents=None, headers={'Content-Type': 'application/json'}):
         """Returns /GET or /POST response as JSON"""
-        http_code, str_response = self._get_str(url, post_contents)
+        http_code, str_response = self._get_str(url, post_contents, headers)
         try:
             json_response = json.loads(str_response)
         except:
@@ -121,7 +123,6 @@ class Client(object):
 
 
 class Session(Client):
-
     """
     Tank session
     """
@@ -199,11 +200,16 @@ class Session(Client):
         """
         url = '/upload?session=%s&filename=%s' % (
             self._session, remote_filename)
-        contents = open(local_path, 'rb').read()
-        http_code, reply = self._get_json(url, post_contents=contents)
-        if http_code != 200:
-            raise APIError("Failed to upload file", json.loads(reply))
-        return reply
+
+        size=os.path.getsize(local_path)
+
+        with io.FileIO('rus.txt','rb') as f:
+            headers = {'Content-Length': size}
+            data=f.readall()
+            http_code, reply = self._get_json(url,post_contents=data,headers=headers)
+            if http_code != 200:
+                raise APIError("Failed to upload file", json.loads(reply))
+            return reply
 
 
 def make_ini(params):
